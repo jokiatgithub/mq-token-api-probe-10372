@@ -1,7 +1,0 @@
-name: Example workflow file
-on: workflow_dispatch
-jobs:
-  example:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo synthetic
