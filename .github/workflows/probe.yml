@@ -1,0 +1,31 @@
+name: Contents-write merge behavior
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: |
+          set -eu
+          post() {
+            label="$1"
+            endpoint="$2"
+            shift 2
+            code=$(curl -sS -o "$RUNNER_TEMP/probe-response.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/$endpoint" "$@")
+            printf '%s HTTP %s\n' "$label" "$code"
+            if [ "$code" != 204 ]; then
+              jq -c '{message,sha,parents: [.parents[]?.sha],tree: .commit.tree.sha}' "$RUNNER_TEMP/probe-response.json"
+            fi
+          }
+          post reset-existing git/refs -H 'Content-Type: application/json' -d "{\"ref\":\"refs/heads/create-fixture\",\"sha\":\"$GITHUB_SHA\"}"
+          code=$(curl -sS -o "$RUNNER_TEMP/patch-response.json" -w '%{http_code}' -X PATCH -H "Authorization: Bearer $GH_TOKEN" -H 'Content-Type: application/json' -d "{\"sha\":\"$GITHUB_SHA\",\"force\":true}" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/refs/heads/reset-fixture")
+          printf 'reset-behind-workflow HTTP %s\n' "$code"
+          jq -c '{message,sha: .object.sha}' "$RUNNER_TEMP/patch-response.json"
+          for kind in normal changed deleted renamed; do
+            head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/head-$kind" --jq .object.sha)
+            post "$kind" merges -H 'Content-Type: application/json' -d "{\"base\":\"base-$kind\",\"head\":\"$head\",\"commit_message\":\"Synthetic merge fixture\"}"
+          done
